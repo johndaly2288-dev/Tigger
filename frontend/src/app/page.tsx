@@ -1,52 +1,93 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ProductSearch from '@/components/ProductSearch';
 import HypeRealityGauge from '@/components/HypeRealityGauge';
 import RedFlagList from '@/components/RedFlagList';
 import SentimentChart from '@/components/SentimentChart';
 import ReviewSnippets from '@/components/ReviewSnippets';
-import { ShieldCheck, Zap, BarChart3, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Zap, AlertCircle, Loader2 } from 'lucide-react';
 
-// Mock Data
-const MOCK_PRODUCT = {
-  name: "SonicPro X1000 Wireless Headphones",
-  category: "Audio",
-  hypeScore: 92,
-  realityScore: 68,
-  redFlags: [
-    { issue_summary: "Hinge durability issues after 4-6 months", severity: "high", frequency_count: 42 },
-    { issue_summary: "Software app requires excessive permissions", severity: "medium", frequency_count: 28 },
-    { issue_summary: "Multi-point Bluetooth connection drops", severity: "medium", frequency_count: 15 },
-    { issue_summary: "Earpads flake earlier than expected", severity: "low", frequency_count: 12 },
-    { issue_summary: "Latency issues in high-interference areas", severity: "low", frequency_count: 8 },
-    { issue_summary: "Battery life 20% lower than advertised", severity: "medium", frequency_count: 22 },
-  ],
-  sentimentData: [
-    { source: "r/headphones", sentiment: 62 },
-    { source: "Head-Fi", sentiment: 58 },
-    { source: "r/gadgets", sentiment: 75 },
-    { source: "Amazon Reviews", sentiment: 94 },
-    { source: "Tech-Forums", sentiment: 71 },
-  ],
-  reviews: [
-    {
-      source: "r/headphones",
-      sentiment: 45,
-      snippet: "Sounds great initially, but the build quality is a joke for $400. My left hinge snapped just like everyone else on this sub.",
-      url: "https://reddit.com/r/headphones"
-    },
-    {
-      source: "Head-Fi",
-      sentiment: 55,
-      snippet: "DSP is heavily colored. Great for casual listening, but 'SonicPro' is a marketing misnomer. Audiophiles should look elsewhere.",
-      url: "https://head-fi.org"
-    }
-  ]
-};
+interface RedFlag {
+  id: string;
+  issue_summary: string;
+  severity: 'low' | 'medium' | 'high';
+  frequency_count: number;
+}
+
+interface Review {
+  id: string;
+  source_url: string;
+  content_snippet: string;
+  sentiment_score?: number;
+}
+
+interface ProductData {
+  id: string;
+  name: string;
+  hype_score: number;
+  reality_score: number;
+  red_flags: RedFlag[];
+  reviews: Review[];
+  summary?: string;
+}
 
 export default function Home() {
-  const [showResults, setShowResults] = useState(true); // Defaulting to true for demo purposes
+  const [query, setQuery] = useState('');
+  const [productData, setProductData] = useState<ProductData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showResults, setShowResults] = useState(false);
+
+  const handleSearch = async (searchQuery: string) => {
+    setQuery(searchQuery);
+    setIsLoading(true);
+    setError(null);
+    setShowResults(false);
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/product?name=${encodeURIComponent(searchQuery)}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch product data');
+      }
+      const data = await response.json();
+      setProductData(data);
+      setShowResults(true);
+    } catch (err: any) {
+      console.error('Search failed:', err);
+      setError(err.message || 'An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper to map reviews to SentimentChart format
+  const getSentimentData = (reviews: Review[]) => {
+    if (!reviews || reviews.length === 0) return [];
+    
+    // Group by domain for visualization
+    const domainMap: Record<string, { total: number, count: number }> = {};
+    
+    reviews.forEach(r => {
+      try {
+        const domain = new URL(r.source_url).hostname.replace('www.', '');
+        const sentiment = r.sentiment_score || 50; // Fallback to neutral
+        if (!domainMap[domain]) {
+          domainMap[domain] = { total: 0, count: 0 };
+        }
+        domainMap[domain].total += sentiment;
+        domainMap[domain].count += 1;
+      } catch (e) {
+        // Ignore invalid URLs
+      }
+    });
+
+    return Object.entries(domainMap).map(([source, stats]) => ({
+      source,
+      sentiment: Math.round(stats.total / stats.count)
+    }));
+  };
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] text-gray-900 font-sans pb-20">
@@ -76,23 +117,46 @@ export default function Home() {
           <p className="text-gray-500 text-lg mb-8 max-w-2xl mx-auto">
             RealTalk uses AI to cross-reference marketing claims against thousands of real user discussions on Reddit and specialized forums.
           </p>
-          <ProductSearch />
+          <ProductSearch onSearch={handleSearch} />
+          
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center space-y-4 mt-8 py-12 bg-white rounded-xl border border-gray-100 shadow-sm animate-pulse">
+              <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
+              <div className="text-center">
+                <p className="text-lg font-bold text-gray-900">Scraping Communities...</p>
+                <p className="text-sm text-gray-500">Our AI is analyzing Reddit threads and forum discussions. This may take a minute.</p>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-8 p-6 bg-red-50 border border-red-100 rounded-xl flex items-center space-x-4 max-w-2xl mx-auto">
+              <AlertCircle className="h-8 w-8 text-red-600 flex-shrink-0" />
+              <div className="text-left">
+                <p className="text-sm font-bold text-red-900 uppercase tracking-widest">Analysis Failed</p>
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            </div>
+          )}
         </section>
 
-        {showResults && (
+        {showResults && productData && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
             {/* Product Title Bar */}
             <div className="flex flex-col md:flex-row md:items-end justify-between border-b-2 border-gray-900 pb-4 mb-8">
               <div>
                 <span className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em] mb-1 block">Analysis Report</span>
-                <h1 className="text-3xl font-black text-gray-900">{MOCK_PRODUCT.name}</h1>
+                <h1 className="text-3xl font-black text-gray-900">{productData.name}</h1>
               </div>
               <div className="mt-4 md:mt-0 flex items-center space-x-4">
                 <div className="text-right">
-                  <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Last Updated</span>
-                  <span className="text-xs font-bold">2 hours ago</span>
+                  <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</span>
+                  <span className="text-xs font-bold text-emerald-600 uppercase tracking-widest">Live Analysis Complete</span>
                 </div>
-                <button className="bg-gray-900 text-white px-4 py-2 rounded font-bold text-xs uppercase tracking-widest hover:bg-gray-800 transition-colors">
+                <button 
+                  onClick={() => handleSearch(query)}
+                  className="bg-gray-900 text-white px-4 py-2 rounded font-bold text-xs uppercase tracking-widest hover:bg-gray-800 transition-colors"
+                >
                   Refresh Data
                 </button>
               </div>
@@ -102,30 +166,34 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-4">
                 <HypeRealityGauge 
-                  hypeScore={MOCK_PRODUCT.hypeScore} 
-                  realityScore={MOCK_PRODUCT.realityScore} 
+                  hypeScore={productData.hype_score} 
+                  realityScore={productData.reality_score} 
                 />
               </div>
               <div className="lg:col-span-8">
-                <RedFlagList flags={MOCK_PRODUCT.redFlags as any} />
+                <RedFlagList flags={productData.red_flags.map(f => ({
+                  issue_summary: f.issue_summary,
+                  severity: f.severity,
+                  frequency_count: f.frequency_count
+                }))} />
               </div>
             </div>
 
             {/* Middle Row: Sentiment Chart and Sources */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-7">
-                <SentimentChart data={MOCK_PRODUCT.sentimentData} />
+                <SentimentChart data={getSentimentData(productData.reviews)} />
               </div>
               <div className="lg:col-span-5">
                 <div className="bg-blue-600 p-6 rounded-xl text-white h-full relative overflow-hidden">
                   <Zap className="absolute -right-8 -top-8 h-48 w-48 text-blue-500 opacity-50 rotate-12" />
                   <h3 className="text-sm font-bold uppercase tracking-[0.2em] mb-4 relative z-10">RealTalk Verdict</h3>
                   <p className="text-xl font-medium leading-relaxed mb-6 relative z-10">
-                    "High performance marred by documented build quality failures. Amazon ratings are heavily skewed by initial impressions, while long-term users on Reddit report consistent mechanical issues."
+                    {productData.summary || "No summary available for this product."}
                   </p>
                   <div className="flex items-center space-x-2 relative z-10">
                     <div className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">
-                      Proceed with Caution
+                      {productData.reality_score > 70 ? 'Community Recommended' : productData.reality_score > 40 ? 'Proceed with Caution' : 'Not Recommended'}
                     </div>
                   </div>
                 </div>
@@ -134,7 +202,19 @@ export default function Home() {
 
             {/* Bottom Row: Review Snippets */}
             <div className="mt-6">
-              <ReviewSnippets reviews={MOCK_PRODUCT.reviews} />
+              <ReviewSnippets reviews={productData.reviews.map(r => {
+                let source = "Unknown";
+                try {
+                  source = new URL(r.source_url).hostname.replace('www.', '');
+                } catch(e) {}
+                
+                return {
+                  source: source,
+                  sentiment: r.sentiment_score || 50,
+                  snippet: r.content_snippet,
+                  url: r.source_url
+                };
+              })} />
             </div>
           </div>
         )}

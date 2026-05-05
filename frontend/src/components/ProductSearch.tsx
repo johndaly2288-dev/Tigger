@@ -3,13 +3,14 @@
 import React, { useState } from 'react';
 import { Search, Link as LinkIcon } from 'lucide-react';
 
-export default function ProductSearch() {
+export default function ProductSearch({ onSearch }: { onSearch: (query: string) => void }) {
   const [query, setQuery] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Searching for:', query);
-    // In a real app, this would trigger the scraping/fetch process
+    if (query.trim()) {
+      onSearch(query);
+    }
   };
 
   return (
